@@ -13,10 +13,22 @@ dp = Dispatcher(bot, storage=storage)
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
+# ---------------- DB INIT ----------------
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tg_id INTEGER,
+    name TEXT,
+    text TEXT,
+    grade INTEGER
+)
+""")
+conn.commit()
+
 # ---------------- STATES ----------------
 class StudentForm(StatesGroup):
     waiting_name = State()
-
+    waiting_report = State()
 
 # ---------------- START ----------------
 @dp.message_handler(commands=['start'])
@@ -24,82 +36,48 @@ async def start(message: types.Message):
     if message.from_user.id == TEACHER_ID:
         await message.answer("👨‍🏫 Вы вошли как преподаватель")
     else:
-        cursor.execute(
-            "SELECT id FROM students WHERE tg_id = ?",
-            (message.from_user.id,)
-        )
-        student = cursor.fetchone()
+        await message.answer("👨‍🎓 Введите ваше имя:")
+        await StudentForm.waiting_name.set()
 
-        if student:
-            await message.answer("👨‍🎓 Вы уже зарегистрированы.\nОтправьте отчёт текстом.")
-        else:
-            await message.answer("👨‍🎓 Введите ваше имя:")
-            await StudentForm.waiting_name.set()
-
-
-# ---------------- ВВОД ИМЕНИ ----------------
+# ---------------- NAME ----------------
 @dp.message_handler(state=StudentForm.waiting_name)
 async def get_name(message: types.Message, state: FSMContext):
-    cursor.execute(
-        "INSERT INTO students (tg_id, name) VALUES (?, ?)",
-        (message.from_user.id, message.text)
-    )
-    conn.commit()
-
+    await state.update_data(name=message.text)
     await message.answer("✅ Имя сохранено. Теперь отправьте отчёт текстом.")
-    await state.finish()
+    await StudentForm.waiting_report.set()
 
-
-# ---------------- СТУДЕНТ: ОТЧЁТ ----------------
-@dp.message_handler(
-    lambda message: message.from_user.id != TEACHER_ID
-    and not message.text.startswith("/")
-)
-async def student_report(message: types.Message):
-    cursor.execute(
-        "SELECT id, name FROM students WHERE tg_id = ?",
-        (message.from_user.id,)
-    )
-    student = cursor.fetchone()
-
-    if not student:
-        await message.answer("Сначала напишите /start")
-        return
-
-    student_id, name = student
+# ---------------- REPORT ----------------
+@dp.message_handler(state=StudentForm.waiting_report)
+async def get_report(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    name = data["name"]
 
     cursor.execute(
-        "INSERT INTO reports (student_id, text, grade) VALUES (?, ?, ?)",
-        (student_id, message.text, None)
+        "INSERT INTO reports (tg_id, name, text, grade) VALUES (?, ?, ?, ?)",
+        (message.from_user.id, name, message.text, None)
     )
     conn.commit()
 
     report_id = cursor.lastrowid
 
     await message.answer("✅ Отчёт отправлен")
+    await state.finish()
 
     await bot.send_message(
         TEACHER_ID,
         f"📄 НОВЫЙ ОТЧЁТ\n\n"
-        f"Имя студента: {name}\n"
-        f"ID студента: {student_id}\n"
+        f"Имя: {name}\n"
         f"ID отчёта: {report_id}\n\n"
         f"{message.text}"
     )
 
-
-# ---------------- ПРЕПОДАВАТЕЛЬ: ОТЧЁТЫ ----------------
+# ---------------- REPORTS (TEACHER) ----------------
 @dp.message_handler(commands=['reports'])
 async def reports(message: types.Message):
     if message.from_user.id != TEACHER_ID:
         return
 
-    cursor.execute("""
-    SELECT reports.id, students.id, students.name, reports.text, reports.grade
-    FROM reports
-    JOIN students ON reports.student_id = students.id
-    """)
-
+    cursor.execute("SELECT id, name, text, grade FROM reports")
     rows = cursor.fetchall()
 
     if not rows:
@@ -109,14 +87,13 @@ async def reports(message: types.Message):
     for r in rows:
         await message.answer(
             f"🆔 ID отчёта: {r[0]}\n"
-            f"🧑 Студент: {r[2]}\n"
-            f"🆔 ID студента: {r[1]}\n\n"
-            f"📄 Отчёт:\n{r[3]}\n\n"
-            f"⭐ Оценка: {r[4]}"
+            f"👤 Имя: {r[1]}\n\n"
+            f"📄 Отчёт:\n{r[2]}\n\n"
+            f"⭐ Оценка: {r[3]}"
         )
 
-
-# ---------------- ПРЕПОДАВАТЕЛЬ: ОЦЕНКА ----------------
+# ---------------- GRADE ----------------
+@dp.message_handler(commands=['grade'])
 @dp.message_handler(commands=['grade'])
 async def grade(message: types.Message):
     if message.from_user.id != TEACHER_ID:
@@ -125,19 +102,23 @@ async def grade(message: types.Message):
     try:
         _, report_id, grade = message.text.split()
 
+        grade = int(grade)
+
+        if grade < 2 or grade > 5:
+            await message.answer("❌ Оценка должна быть от 2 до 5")
+            return
+
         cursor.execute(
-            "SELECT students.tg_id FROM reports "
-            "JOIN students ON reports.student_id = students.id "
-            "WHERE reports.id = ?",
+            "SELECT tg_id FROM reports WHERE id = ?",
             (report_id,)
         )
-        student = cursor.fetchone()
+        row = cursor.fetchone()
 
-        if not student:
+        if not row:
             await message.answer("❌ Отчёт не найден")
             return
 
-        student_tg_id = student[0]
+        student_tg_id = row[0]
 
         cursor.execute(
             "UPDATE reports SET grade = ? WHERE id = ?",
@@ -149,10 +130,11 @@ async def grade(message: types.Message):
 
         await bot.send_message(
             student_tg_id,
-            f"📢 Ваш отчёт проверен.\n"
-            f"⭐ Оценка: {grade}"
+            f"📢 Ваш отчёт проверен.\n⭐ Оценка: {grade}"
         )
 
+    except ValueError:
+        await message.answer("❌ Оценка должна быть числом (2–5)")
     except:
         await message.answer("❌ Формат: /grade ID_отчёта оценка")
 
