@@ -2,10 +2,11 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.types import BotCommand, BotCommandScopeChat
 from config import BOT_TOKEN, TEACHER_ID
 import sqlite3
 
-# ---------------- INIT ----------------
+# ---------- INIT ----------
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
@@ -13,40 +14,49 @@ dp = Dispatcher(bot, storage=storage)
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
-# ---------------- DB INIT ----------------
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tg_id INTEGER,
-    name TEXT,
-    text TEXT,
-    grade INTEGER
-)
-""")
-conn.commit()
-
-# ---------------- STATES ----------------
+# ---------- STATES ----------
 class StudentForm(StatesGroup):
     waiting_name = State()
     waiting_report = State()
 
-# ---------------- START ----------------
-@dp.message_handler(commands=['start'])
+# ---------- COMMAND MENUS ----------
+async def set_teacher_commands():
+    commands = [
+        BotCommand("start", "Запустить бота"),
+        BotCommand("reports", "Посмотреть все отчёты"),
+        BotCommand("grade", "Поставить оценку"),
+    ]
+    await bot.set_my_commands(commands, scope=BotCommandScopeChat(TEACHER_ID))
+
+
+async def set_student_commands(chat_id):
+    commands = [
+        BotCommand("start", "Запустить бота"),
+    ]
+    await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id))
+
+
+# ---------- START ----------
+@dp.message_handler(commands=["start"])
 async def start(message: types.Message):
     if message.from_user.id == TEACHER_ID:
+        await set_teacher_commands()
         await message.answer("👨‍🏫 Вы вошли как преподаватель")
     else:
+        await set_student_commands(message.from_user.id)
         await message.answer("👨‍🎓 Введите ваше имя:")
         await StudentForm.waiting_name.set()
 
-# ---------------- NAME ----------------
+
+# ---------- STUDENT NAME ----------
 @dp.message_handler(state=StudentForm.waiting_name)
 async def get_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
     await message.answer("✅ Имя сохранено. Теперь отправьте отчёт текстом.")
     await StudentForm.waiting_report.set()
 
-# ---------------- REPORT ----------------
+
+# ---------- STUDENT REPORT ----------
 @dp.message_handler(state=StudentForm.waiting_report)
 async def get_report(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -71,8 +81,9 @@ async def get_report(message: types.Message, state: FSMContext):
         f"{message.text}"
     )
 
-# ---------------- REPORTS (TEACHER) ----------------
-@dp.message_handler(commands=['reports'])
+
+# ---------- TEACHER: REPORTS ----------
+@dp.message_handler(commands=["reports"])
 async def reports(message: types.Message):
     if message.from_user.id != TEACHER_ID:
         return
@@ -92,16 +103,15 @@ async def reports(message: types.Message):
             f"⭐ Оценка: {r[3]}"
         )
 
-# ---------------- GRADE ----------------
-@dp.message_handler(commands=['grade'])
-@dp.message_handler(commands=['grade'])
+
+# ---------- TEACHER: GRADE ----------
+@dp.message_handler(commands=["grade"])
 async def grade(message: types.Message):
     if message.from_user.id != TEACHER_ID:
         return
 
     try:
         _, report_id, grade = message.text.split()
-
         grade = int(grade)
 
         if grade < 2 or grade > 5:
@@ -139,6 +149,6 @@ async def grade(message: types.Message):
         await message.answer("❌ Формат: /grade ID_отчёта оценка")
 
 
-# ---------------- RUN ----------------
+# ---------- RUN ----------
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
