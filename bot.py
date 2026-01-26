@@ -6,10 +6,7 @@ from aiogram.types import BotCommand, BotCommandScopeChat
 from config import BOT_TOKEN, TEACHER_ID
 import sqlite3
 
-<<<<<<< Updated upstream
-# ---------- INIT ----------
-=======
->>>>>>> Stashed changes
+
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
@@ -17,20 +14,12 @@ dp = Dispatcher(bot, storage=storage)
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
-<<<<<<< Updated upstream
-# ---------- STATES ----------
-=======
 
->>>>>>> Stashed changes
 class StudentForm(StatesGroup):
     waiting_name = State()
     waiting_report = State()
 
-<<<<<<< Updated upstream
-# ---------- COMMAND MENUS ----------
-=======
 
->>>>>>> Stashed changes
 async def set_teacher_commands():
     commands = [
         BotCommand("start", "Запустить бота"),
@@ -47,10 +36,6 @@ async def set_student_commands(chat_id):
     await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id))
 
 
-<<<<<<< Updated upstream
-# ---------- START ----------
-=======
->>>>>>> Stashed changes
 @dp.message_handler(commands=["start"])
 async def start(message: types.Message):
     if message.from_user.id == TEACHER_ID:
@@ -62,10 +47,6 @@ async def start(message: types.Message):
         await StudentForm.waiting_name.set()
 
 
-<<<<<<< Updated upstream
-# ---------- STUDENT NAME ----------
-=======
->>>>>>> Stashed changes
 @dp.message_handler(state=StudentForm.waiting_name)
 async def get_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
@@ -73,10 +54,7 @@ async def get_name(message: types.Message, state: FSMContext):
     await StudentForm.waiting_report.set()
 
 
-<<<<<<< Updated upstream
-# ---------- STUDENT REPORT ----------
-=======
->>>>>>> Stashed changes
+
 @dp.message_handler(state=StudentForm.waiting_report)
 async def get_report(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -102,10 +80,6 @@ async def get_report(message: types.Message, state: FSMContext):
     )
 
 
-<<<<<<< Updated upstream
-# ---------- TEACHER: REPORTS ----------
-=======
->>>>>>> Stashed changes
 @dp.message_handler(commands=["reports"])
 async def reports(message: types.Message):
     if message.from_user.id != TEACHER_ID:
@@ -127,10 +101,7 @@ async def reports(message: types.Message):
         )
 
 
-<<<<<<< Updated upstream
-# ---------- TEACHER: GRADE ----------
-=======
->>>>>>> Stashed changes
+
 @dp.message_handler(commands=["grade"])
 async def grade(message: types.Message):
     if message.from_user.id != TEACHER_ID:
@@ -175,9 +146,6 @@ async def grade(message: types.Message):
         await message.answer("❌ Формат: /grade ID_отчёта оценка")
 
 
-<<<<<<< Updated upstream
-# ---------- RUN ----------
-=======
->>>>>>> Stashed changes
+
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
